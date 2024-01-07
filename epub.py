@@ -8,23 +8,41 @@ import aiohttp
 import asyncio
 import json
 
-PROGRESS_FILE = "progress.json"
+book_title = "ebook"
 
-async def save_progress(progress_data):
-    with open(PROGRESS_FILE, 'w') as progress_file:
-        json.dump(progress_data, progress_file)
+CACHE_FOLDER = "cache"  # New cache folder
 
-async def load_progress():
-    if os.path.exists(PROGRESS_FILE):
-        with open(PROGRESS_FILE, 'r') as progress_file:
-            return json.load(progress_file)
-    return {}
+# Cache dictionary to store processed paragraphs
+paragraph_cache = {}
+
+# Function to generate a unique cache file name for each book
+def get_cache_file_name():
+    return f"{book_title}_cache.json"
+
+# Function to save cache to file for a specific book
+def save_cache_to_file():
+    global paragraph_cache
+    cache_file = os.path.join(CACHE_FOLDER, book_title, get_cache_file_name())
+    os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+    with open(cache_file, 'w') as cache_file:
+        json.dump(paragraph_cache, cache_file, indent=2)
+
+
+# Function to load cache from file for a specific book
+def load_cache_from_file():
+    global paragraph_cache
+    cache_file = os.path.join(CACHE_FOLDER, book_title, get_cache_file_name())
+    if os.path.exists(cache_file):
+        with open(cache_file, 'r') as cache_file:
+            paragraph_cache = json.load(cache_file)
+
 
 async def filter_text(sentence):
     # Implement your text filtering logic here
     # For example, let's remove all vowels from the sentence
     # filtered_sentence = re.sub('[aeiouAEIOU]', '', sentence)
     return sentence
+
 
 async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, timeout=5000):
     # Define the endpoint
@@ -45,7 +63,8 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
                     await asyncio.sleep(1)  # Wait for 1 second before retrying
                     print(f"Retrying with original sentence: {input_text}")
                 else:
-                    print(f"Generated sentence: {llama_response.get('output')}")
+                    print(
+                        f"Generated sentence: {llama_response.get('output')}")
                     return llama_response.get("output")
 
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
@@ -65,19 +84,37 @@ async def process_sentence(sentence, session):
 
     return llama_response
 
+
 async def process_paragraph(paragraph, session):
+    global paragraph_cache  # Use the global cache variable
+
     # Filter and send the paragraph asynchronously
-    filtered_paragraph = await filter_text(paragraph.text)
+    filtered_paragraph = await filter_text(paragraph.get_text())
+
+    # Check if the filtered paragraph is already in the cache
+    if filtered_paragraph in paragraph_cache:
+        print(f"Using cached paragraph: {filtered_paragraph}")
+        return paragraph_cache[filtered_paragraph]
 
     # Check if the filtered paragraph is too short
-    if len(filtered_paragraph.split()) <= 2:
-        print(f"Paragraph is too short. Using original paragraph: {paragraph.text}")
-        return paragraph.text
+    if len(filtered_paragraph.split()) <= 5:
+        print(
+            f"Paragraph is too short. Using original paragraph: {paragraph.get_text()}")
+        return paragraph.get_text()
 
+    # Call the Llama agent and store the result in the cache
     llama_response = await send_to_llama_agent(session, filtered_paragraph, max_tokens=32)
+    paragraph_cache[filtered_paragraph] = llama_response
+
+    # Save the updated cache to file
+    save_cache_to_file()
+
     return llama_response
 
-async def process_chapter(chapter, session, progress_data):
+
+async def process_chapter(chapter, session, progress_data, book_title, output_folder, chap_num):
+    global paragraph_cache  # Use the global cache variable
+
     # Extract text from the chapter
     chapter_content = chapter.get_content().decode('utf-8')
 
@@ -91,29 +128,89 @@ async def process_chapter(chapter, session, progress_data):
         return
 
     # Get total paragraphs in the chapter
-    total_paragraphs = len(soup.find_all('p'))
+    paragraphs = soup.find_all(['p'])
+    total_paragraphs = len(paragraphs)
 
     # Get the saved progress for the current chapter
     start_paragraph_index = progress_data.get(str(chapter), 0)
 
     # Process each paragraph in the chapter sequentially
-    for i, paragraph in enumerate(soup.find_all('p')):
+    for i, paragraph in enumerate(paragraphs):
         if i < start_paragraph_index:
             continue
 
         # Process one paragraph at a time
         modified_paragraph = await process_paragraph(paragraph, session)
-        chapter_content = chapter_content.replace(paragraph.text, modified_paragraph)
+        chapter_content = chapter_content.replace(
+            paragraph.get_text(), modified_paragraph)
 
         # Print progress
-        print(f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.")
-
-        # Save progress after processing each paragraph
-        progress_data[str(chapter)] = i + 1
-        await save_progress(progress_data)
+        print(
+            f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.")
 
     # Update the chapter content
     chapter.set_content(chapter_content.encode('utf-8'))
+
+#    # Save each chapter to a separate EPUB file in the 'chapters' subfolder
+#     chapter_folder = os.path.join(output_folder, book_title, 'chapters')
+#     os.makedirs(chapter_folder, exist_ok=True)
+    
+#     # Use 'i' here to get the correct paragraph index
+#     chapter_output_file = os.path.join(
+#         chapter_folder, f"{book_title}_chapter_{chap_num + 1}.txt")
+#     # epub.write_epub(chapter_output_file, chapter)
+#     save_to_text(chapter, chapter_output_file)
+#     print(f"Chapter {chap_num + 1} processed. Output saved to {chapter_output_file}")
+
+
+async def process_all_epubs(input_folder, output_folder):
+
+    global paragraph_cache
+
+    # Ensure the output folder and cache folder exist
+    os.makedirs(output_folder, exist_ok=True)
+    os.makedirs(CACHE_FOLDER, exist_ok=True)
+
+    # Process all EPUB files in the input folder sequentially
+    for filename in os.listdir(input_folder):
+        if filename.endswith(".epub"):
+            input_file = os.path.join(input_folder, filename)
+
+            # Create an aiohttp session
+            async with aiohttp.ClientSession() as session:
+                # Read the EPUB file
+                book = epub.read_epub(input_file)
+
+                # Extract the book title from the EPUB metadata
+                global book_title
+                book_title = book.get_metadata("DC", "title")[0][0] if book.get_metadata(
+                    "DC", "title") else "Untitled"
+
+                # Load the cache for the current book
+                load_cache_from_file()
+
+                # Process each chapter in the book sequentially
+                for i, item in enumerate(book.items):
+                    if isinstance(item, ebooklib.epub.EpubItem):
+                        await process_chapter(item, session, {}, book_title, output_folder, i)
+
+                # Save the modified book to a new EPUB file
+                output_epub_file = os.path.join(
+                    output_folder, book_title, f"{book_title}_{datetime.now().strftime('%Y%m%d')}.epub")
+                epub.write_epub(output_epub_file, book)
+                print("EPUB processing complete. Output saved to", output_epub_file)
+
+                # Save the modified content to a text file
+                output_text_file = os.path.join(
+                    output_folder, book_title, f"{book_title}_{datetime.now().strftime('%Y%m%d')}.txt")
+                await save_to_text(book, output_text_file)
+                print("Text content saved to", output_text_file)
+
+                # Save the cache for the current book
+                save_cache_to_file()
+
+    # Save the final cache to file after processing all EPUBs
+    save_cache_to_file()
 
 async def save_to_text(book, output_text_file):
     text_content = ""
@@ -122,44 +219,6 @@ async def save_to_text(book, output_text_file):
 
     with open(output_text_file, 'w', encoding='utf-8') as text_file:
         text_file.write(text_content)
-
-async def process_epub(input_file, output_folder, progress_data):
-    # Read the EPUB file
-    book = epub.read_epub(input_file)
-
-    # Create an aiohttp session
-    async with aiohttp.ClientSession() as session:
-        # Process each chapter in the book sequentially
-        for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
-            await process_chapter(item, session, progress_data)
-
-        # Generate the output file path for EPUB
-        output_epub_file = os.path.join(output_folder, os.path.basename(input_file).replace('.epub', f'_{datetime.now().strftime("%Y%m%d")}.epub'))
-
-        # Save the modified book to a new EPUB file
-        epub.write_epub(output_epub_file, book)
-        print("EPUB processing complete. Output saved to", output_epub_file)
-
-        # Generate the output file path for text
-        output_text_file = os.path.join(output_folder, os.path.basename(input_file).replace('.epub', f'_{datetime.now().strftime("%Y%m%d")}.txt'))
-
-        # Save the modified content to a text file
-        await save_to_text(book, output_text_file)
-        print("Text content saved to", output_text_file)
-
-async def process_all_epubs(input_folder, output_folder):
-    # Ensure the output folder exists
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
-
-    # Load progress data
-    progress_data = await load_progress()
-
-    # Process all EPUB files in the input folder sequentially
-    for filename in os.listdir(input_folder):
-        if filename.endswith(".epub"):
-            input_file = os.path.join(input_folder, filename)
-            await process_epub(input_file, output_folder, progress_data)
 
 if __name__ == "__main__":
     input_folder = "input"
