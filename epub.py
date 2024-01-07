@@ -25,12 +25,15 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
                 llama_response = await response.json()
 
                 # Check for conditions to use the original sentence
-                if response.status == 404 or len(llama_response.get("generated_text", "")) > timeout:
+                if response.status == 404 or len(llama_response.get("output", "")) > timeout:
+                    print(f"Original sentence used: {input_text}")
                     return input_text
-                elif not llama_response.get("generated_text") or len(llama_response.get("generated_text")) < 5:
+                elif not llama_response.get("output") or len(llama_response.get("output")) < 5:
                     await asyncio.sleep(1)  # Wait for 1 second before retrying
+                    print(f"Retrying with original sentence: {input_text}")
                 else:
-                    return llama_response.get("generated_text")
+                    print(f"Generated sentence: {llama_response.get('output')}")
+                    return llama_response.get("output")
 
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
             # Catch various errors, including network-related issues
@@ -38,7 +41,9 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
             await asyncio.sleep(1)  # Wait for 1 second before retrying
 
     # Return the original sentence if retry count is exhausted
+    print(f"Retry count exhausted. Using original sentence: {input_text}")
     return input_text
+
 
 async def process_sentence(sentence, session):
     # Filter and send the sentence asynchronously
@@ -54,11 +59,17 @@ async def process_chapter(chapter, session):
     # Use BeautifulSoup to parse HTML content
     soup = BeautifulSoup(chapter_content, 'html.parser')
 
+    # Get total sentences in the chapter
+    total_sentences = len(soup.find_all('p'))
+
     # Process each sentence in the chapter sequentially
-    for sentence in soup.find_all('p'):
+    for i, sentence in enumerate(soup.find_all('p')):
         # Process one sentence at a time
         modified_sentence = await process_sentence(sentence.text, session)
         chapter_content = chapter_content.replace(sentence.text, modified_sentence)
+
+        # Print progress
+        print(f"Chapter progress: {i + 1}/{total_sentences} sentences processed.")
 
     # Update the chapter content
     chapter.set_content(chapter_content.encode('utf-8'))
