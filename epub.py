@@ -7,6 +7,7 @@ from datetime import datetime
 import aiohttp
 import asyncio
 import json
+import difflib
 
 book_title = "ebook"
 
@@ -42,6 +43,19 @@ async def filter_text(sentence):
     # For example, let's remove all vowels from the sentence
     # filtered_sentence = re.sub('[aeiouAEIOU]', '', sentence)
     return sentence
+
+
+def visualize_differences(original, modified):
+    d = difflib.Differ()
+    diff = list(d.compare(original.split(), modified.split()))
+
+    for token in diff:
+        if token.startswith(' '):
+            print(token, end=' ')
+        elif token.startswith('- '):
+            print(f"\033[91m{token[2:]}\033[0m", end=' ')  # Red color for deleted words
+        elif token.startswith('+ '):
+            print(f"\033[92m{token[2:]}\033[0m", end=' ')  # Green color for added words
 
 
 async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, timeout=5000):
@@ -93,7 +107,8 @@ async def process_paragraph(paragraph, session):
 
     # Check if the filtered paragraph is already in the cache
     if filtered_paragraph in paragraph_cache:
-        print(f"Using cached paragraph: {filtered_paragraph}")
+        print(f"Using cached paragraph.")
+        visualize_differences(paragraph.get_text(), paragraph_cache[filtered_paragraph])
         return paragraph_cache[filtered_paragraph]
 
     # Check if the filtered paragraph is too short
@@ -108,6 +123,8 @@ async def process_paragraph(paragraph, session):
 
     # Save the updated cache to file
     save_cache_to_file()
+
+    visualize_differences(paragraph.get_text(), llama_response)
 
     return llama_response
 
@@ -151,17 +168,6 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
     # Update the chapter content
     chapter.set_content(chapter_content.encode('utf-8'))
 
-#    # Save each chapter to a separate EPUB file in the 'chapters' subfolder
-#     chapter_folder = os.path.join(output_folder, book_title, 'chapters')
-#     os.makedirs(chapter_folder, exist_ok=True)
-    
-#     # Use 'i' here to get the correct paragraph index
-#     chapter_output_file = os.path.join(
-#         chapter_folder, f"{book_title}_chapter_{chap_num + 1}.txt")
-#     # epub.write_epub(chapter_output_file, chapter)
-#     save_to_text(chapter, chapter_output_file)
-#     print(f"Chapter {chap_num + 1} processed. Output saved to {chapter_output_file}")
-
 
 async def process_all_epubs(input_folder, output_folder):
 
@@ -185,6 +191,12 @@ async def process_all_epubs(input_folder, output_folder):
                 global book_title
                 book_title = book.get_metadata("DC", "title")[0][0] if book.get_metadata(
                     "DC", "title") else "Untitled"
+                
+                # Update the output folder for the specific book title
+                book_output_folder = os.path.join(output_folder, book_title)
+
+                # Additional code to create a folder for each book title
+                os.makedirs(book_output_folder, exist_ok=True)
 
                 # Load the cache for the current book
                 load_cache_from_file()
@@ -216,6 +228,8 @@ async def save_to_text(book, output_text_file):
     text_content = ""
     for item in book.get_items_of_type(ebooklib.ITEM_DOCUMENT):
         text_content += item.get_content().decode('utf-8')
+
+    os.makedirs(os.path.dirname(output_text_file), exist_ok=True)
 
     with open(output_text_file, 'w', encoding='utf-8') as text_file:
         text_file.write(text_content)
