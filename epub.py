@@ -8,6 +8,7 @@ import aiohttp
 import asyncio
 import json
 import difflib
+import chardet
 
 book_title = "ebook"
 
@@ -17,22 +18,22 @@ CACHE_FOLDER = "cache"  # New cache folder
 paragraph_cache = {}
 
 # Function to generate a unique cache file name for each book
-def get_cache_file_name():
-    return f"{book_title}_cache.json"
+def get_cache_file_name(chapter_num):
+    return f"{book_title}_cache_chapter_{chapter_num}.json"
 
 # Function to save cache to file for a specific book
-def save_cache_to_file():
+def save_cache_to_file(chapter_num):
     global paragraph_cache
-    cache_file = os.path.join(CACHE_FOLDER, book_title, get_cache_file_name())
+    cache_file = os.path.join(CACHE_FOLDER, book_title, get_cache_file_name(chapter_num))
     os.makedirs(os.path.dirname(cache_file), exist_ok=True)
     with open(cache_file, 'w') as cache_file:
         json.dump(paragraph_cache, cache_file, indent=2)
 
 
 # Function to load cache from file for a specific book
-def load_cache_from_file():
+def load_cache_from_file(chapter_num):
     global paragraph_cache
-    cache_file = os.path.join(CACHE_FOLDER, book_title, get_cache_file_name())
+    cache_file = os.path.join(CACHE_FOLDER, book_title, get_cache_file_name(chapter_num))
     if os.path.exists(cache_file):
         with open(cache_file, 'r') as cache_file:
             paragraph_cache = json.load(cache_file)
@@ -78,7 +79,7 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
                     print(f"Retrying with original sentence: {input_text}")
                 else:
                     print(
-                        f"Generated sentence: {llama_response.get('output')}")
+                        f"Generated sentence:")
                     return llama_response.get("output")
 
         except (aiohttp.ClientError, asyncio.TimeoutError) as e:
@@ -99,7 +100,7 @@ async def process_sentence(sentence, session):
     return llama_response
 
 
-async def process_paragraph(paragraph, session):
+async def process_paragraph(paragraph, session, chap_num):
     global paragraph_cache  # Use the global cache variable
 
     # Filter and send the paragraph asynchronously
@@ -122,7 +123,7 @@ async def process_paragraph(paragraph, session):
     paragraph_cache[filtered_paragraph] = llama_response
 
     # Save the updated cache to file
-    save_cache_to_file()
+    save_cache_to_file(chap_num)
 
     visualize_differences(paragraph.get_text(), llama_response)
 
@@ -131,9 +132,24 @@ async def process_paragraph(paragraph, session):
 
 async def process_chapter(chapter, session, progress_data, book_title, output_folder, chap_num):
     global paragraph_cache  # Use the global cache variable
+    paragraph_cache = {}
 
-    # Extract text from the chapter
-    chapter_content = chapter.get_content().decode('utf-8')
+    # Load the cache for the current chapter
+    load_cache_from_file(chap_num)
+
+    try:
+        # Try decoding using utf-8
+        chapter_content = chapter.get_content().decode('utf-8')
+    except UnicodeDecodeError:
+        # If decoding as utf-8 fails, try to detect the encoding
+        encoding_detection_result = chardet.detect(chapter.get_content())
+        detected_encoding = encoding_detection_result.get('encoding')
+        
+        if detected_encoding:
+            chapter_content = chapter.get_content().decode(detected_encoding)
+        else:
+            # If detection fails, use a default encoding (e.g., 'latin-1')
+            chapter_content = chapter.get_content().decode('latin-1')
 
     # Use BeautifulSoup to parse HTML content
     soup = BeautifulSoup(chapter_content, 'html.parser')
@@ -157,13 +173,16 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
             continue
 
         # Process one paragraph at a time
-        modified_paragraph = await process_paragraph(paragraph, session)
+        modified_paragraph = await process_paragraph(paragraph, session, chap_num)
         chapter_content = chapter_content.replace(
             paragraph.get_text(), modified_paragraph)
+        
+        # Save the updated cache to file for each paragraph
+        save_cache_to_file(chap_num)
 
         # Print progress
         print(
-            f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.")
+            f"\nChapter progress: {i + 1}/{total_paragraphs} paragraphs processed.\n\n")
 
     # Update the chapter content
     chapter.set_content(chapter_content.encode('utf-8'))
@@ -198,13 +217,13 @@ async def process_all_epubs(input_folder, output_folder):
                 # Additional code to create a folder for each book title
                 os.makedirs(book_output_folder, exist_ok=True)
 
-                # Load the cache for the current book
-                load_cache_from_file()
-
                 # Process each chapter in the book sequentially
                 for i, item in enumerate(book.items):
                     if isinstance(item, ebooklib.epub.EpubItem):
-                        await process_chapter(item, session, {}, book_title, output_folder, i)
+                        # Check if the chapter file name is "Cover.xhtml" and skip if true
+                        print(f"Chapter name'{item.file_name}'")
+                        if re.match(r'^Text/.*', item.file_name):
+                            await process_chapter(item, session, {}, book_title, output_folder, i)
 
                 # Save the modified book to a new EPUB file
                 output_epub_file = os.path.join(
@@ -218,11 +237,6 @@ async def process_all_epubs(input_folder, output_folder):
                 await save_to_text(book, output_text_file)
                 print("Text content saved to", output_text_file)
 
-                # Save the cache for the current book
-                save_cache_to_file()
-
-    # Save the final cache to file after processing all EPUBs
-    save_cache_to_file()
 
 async def save_to_text(book, output_text_file):
     text_content = ""
