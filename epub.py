@@ -17,6 +17,9 @@ CACHE_FOLDER = "cache"  # New cache folder
 # Cache dictionary to store processed paragraphs
 paragraph_cache = {}
 
+total_chapters = 0
+total_books = 0
+
 # Function to generate a unique cache file name for each book
 def get_cache_file_name(chapter_num):
     return f"{book_title}_cache_chapter_{chapter_num}.json"
@@ -52,11 +55,11 @@ def visualize_differences(original, modified):
 
     for token in diff:
         if token.startswith(' '):
-            print(token, end=' ')
+            print(token, end='')
         elif token.startswith('- '):
-            print(f"\033[91m{token[2:]}\033[0m", end=' ')  # Red color for deleted words
+            print(f" \033[91m{token[2:]}\033[0m", end='')  # Red color for deleted words
         elif token.startswith('+ '):
-            print(f"\033[92m{token[2:]}\033[0m", end=' ')  # Green color for added words
+            print(f" \033[92m{token[2:]}\033[0m", end='')  # Green color for added words
 
 
 async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, timeout=5000):
@@ -181,8 +184,12 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
         save_cache_to_file(chap_num)
 
         # Print progress
+        # print(
+        #     f"\nJob progress: {i + 1}/{total_books} books processed.\n\n")
         print(
-            f"\nChapter progress: {i + 1}/{total_paragraphs} paragraphs processed.\n\n")
+            f"\nBook progress: {chap_num + 1}/{total_chapters} chapters processed.")
+        print(
+            f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.\n")
 
     # Update the chapter content
     chapter.set_content(chapter_content.encode('utf-8'))
@@ -216,6 +223,9 @@ async def process_all_epubs(input_folder, output_folder):
 
                 # Additional code to create a folder for each book title
                 os.makedirs(book_output_folder, exist_ok=True)
+
+                global total_chapters
+                total_chapters = sum(1 for item in book.items if isinstance(item, ebooklib.epub.EpubItem) and re.match(r'^Text/.*', item.file_name))
 
                 # Process each chapter in the book sequentially
                 for i, item in enumerate(book.items):
