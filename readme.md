@@ -35,10 +35,10 @@ For a detailed installation guide of Llama-Cpp-Python with Nvidia gpu accelerati
    NO_CACHE = False
    VERBOSE = False
    # your agent URL
-   LLAMA_URL = ""
+   LLAMA_URL = http://example.llm-agent-url:8083/generate
    
    #### llama.cpp model settings, wil be ignored if MODEL_PATH is not provided ####
-   MODEL_PATH = ""  # If this has a value, the URL will be ignored
+   MODEL_PATH = model/example_model.gguf  # If this has a value, the URL will be ignored
    N_GPU_LAYERS = -1
    N_CTX = 2048
    N_BATCH = 32
@@ -58,6 +58,7 @@ All args is optional, it'll has higher priority than env if provided.
 - `--url`: URL of the Llama agent (default: `http://localhost:8083/generate`).
 - `--no-cache`: Disable caching (default is false).
 - `--verbose`: Enable verbose logging.
+- `--model-path`: Path to model file.
 
 
 #### Example 1: Provide custom input and output folders
@@ -70,12 +71,17 @@ python epub.py -i custom_input_folder -o custom_output_folder
 python epub.py --url http://custom.llama-agent-url:8083/generate
 ```
 
-#### Example 3: Disable caching explicitly
+#### Example 3: Use Llama model locally
+```bash
+python epub.py --model-path "./model/example_model.gguf"
+```
+
+#### Example 4: Disable caching explicitly
 ```bash
 python epub.py --no-cache
 ```
 
-#### Example 4: Enable verbose logging
+#### Example 5: Enable verbose logging
 ```bash
 python epub.py --verbose
 ```
