@@ -36,14 +36,22 @@ All args is optional, it'll has higher priority than env if provided.
 
 
 #### Example 1: Provide custom input and output folders
+```bash
 python epub.py -i custom_input_folder -o custom_output_folder
+```
 
 #### Example 2: Use a custom Llama agent URL
+```bash
 python epub.py --url http://custom.llama-agent-url:8083/generate
+```
 
 #### Example 3: Disable caching explicitly
+```bash
 python epub.py --no-cache
+```
 
 #### Example 4: Enable verbose logging
+```bash
 python epub.py --verbose
+```
 
