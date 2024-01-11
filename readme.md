@@ -1,5 +1,7 @@
 # EpubAutoEditor
 
+#### ⚠️Disclaimer⚠️, now it can only be used with my scuffed [gguf-py-backend](https://github.com/pisichi/gguf-py-backend) and customize for grammar correction. I'll implement mode selection and the stand-alone llama-python-ccp on this later.)
+
 EpubAutoEditor is a tool designed for automatically processing EPUB files, providing grammar correction, and enabling bulk editing of entire EPUB collections. <br>
 It is designed to integrate with my custom gguf agent [gguf-py-backend](https://github.com/pisichi/gguf-py-backend).
 
