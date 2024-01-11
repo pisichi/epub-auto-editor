@@ -35,15 +35,15 @@ All args is optional, it'll has higher priority than env if provided.
 - `--verbose`: Enable verbose logging.
 
 
-# Example 1: Provide custom input and output folders
+#### Example 1: Provide custom input and output folders
 python epub.py -i custom_input_folder -o custom_output_folder
 
-# Example 2: Use a custom Llama agent URL
+#### Example 2: Use a custom Llama agent URL
 python epub.py --url http://custom.llama-agent-url:8083/generate
 
-# Example 3: Disable caching explicitly
+#### Example 3: Disable caching explicitly
 python epub.py --no-cache
 
-# Example 4: Enable verbose logging
+#### Example 4: Enable verbose logging
 python epub.py --verbose
 
