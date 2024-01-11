@@ -1,7 +1,7 @@
 # EpubAutoEditor
 
 EpubAutoEditor is a tool designed for automatically processing EPUB files, providing grammar correction, and enabling bulk editing of entire EPUB collections. <br>
-It is designed to integrate with my custom gguf agent [gguf-py-backend](https://github.com/pisichi/gguf-py-backend).
+It is designed to integrate with my custom gguf agent [gguf-py-backend](https://github.com/pisichi/gguf-py-backend). Or you can use with any Llama.cpp supported model.
 
 
 ![Example Visualization](docs/images/visualize.png)
