@@ -13,7 +13,7 @@ import argparse
 from dotenv import load_dotenv
 import logging
 from tqdm import tqdm 
-import regex
+from model import Model
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -31,6 +31,7 @@ parser.add_argument("-o", "--output", type=str, help="Output folder for processe
 parser.add_argument("--url", type=str, help="URL of the Llama agent", default=DEFAULT_LLAMA_URL)
 parser.add_argument("--no-cache", action="store_true", help="Disable caching (default is false)")
 parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+parser.add_argument("--model-path", type=str, help="Path to the model", default=os.getenv("MODEL_PATH"))
 args = parser.parse_args()
 
 # Read parameters from environment variables if not provided via command line
@@ -39,6 +40,7 @@ output_folder = args.output or os.getenv("OUTPUT_FOLDER", DEFAULT_OUTPUT_FOLDER)
 llama_url = args.url or os.getenv("LLAMA_URL", DEFAULT_LLAMA_URL)
 use_cache = not args.no_cache if args.no_cache is not None else not os.getenv("NO_CACHE", True)
 verbose_logging = args.verbose or (os.getenv("VERBOSE", "False").lower() == "true")
+model_path = args.model_path or os.getenv("MODEL_PATH")
 
 book_title = "ebook"
 
@@ -47,6 +49,9 @@ paragraph_cache = {}
 
 total_chapters = 0
 total_books = 0
+
+if os.getenv("MODEL_PATH"):
+    model = Model(model_path)
 
 # Function to generate a unique cache file name for each book
 def get_cache_file_name(chapter_num):
@@ -71,9 +76,7 @@ def load_cache_from_file(chapter_num):
 
 
 async def filter_text(sentence):
-    # Implement your text filtering logic here
-    # For example, let's remove all vowels from the sentence
-    # filtered_sentence = re.sub('[aeiouAEIOU]', '', sentence)
+    # TODO
     return sentence
 
 
@@ -90,50 +93,40 @@ def visualize_differences(original, modified):
             print(f" \033[92m{token[2:]}\033[0m", end='')  # Green color for added words
 
 
-async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, timeout=5000, use_local_function=False):
+async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, timeout=5000):
     # Define the endpoint
     endpoint = llama_url
 
     for _ in range(retry_count + 1):
         try:
-            if use_local_function:
-                # Use the local function instead of making an HTTP request
-                # llama_response = await generate_from_llama_agent(input_text, max_tokens)
-                custom_print(f"Not implemented yet.")
-            else:
-                # Send asynchronous HTTP POST request with a timeout
-                async with session.post(endpoint, json={"input_text": input_text, "max_tokens": max_tokens}, timeout=timeout) as response:
-                    llama_response = await response.json()
+            # Use the local function or make an HTTP request
+            llama_response = await model.generate(input_text, max_tokens) if os.getenv("MODEL_PATH") else await get_llama_response(session, endpoint, input_text, max_tokens, timeout)
 
-            # Check for conditions to use the original sentence
-            if response.status == 404 or len(llama_response.get("output", "")) > timeout:
-                custom_print(f"Original sentence used: {input_text}")
-                return input_text
-            elif not llama_response.get("output") or len(llama_response.get("output")) < 1:
-                # await asyncio.sleep(0.3)  # Wait for 1 second before retrying
+            # if llama_response is an object with output, else just use llama_response as is
+            llama_response_output = llama_response.get("output", llama_response) if isinstance(llama_response, dict) else llama_response
+
+            # Early return for invalid cases
+            if not llama_response_output or len(llama_response_output) < 1:
                 custom_print(f"Retrying with original sentence: {input_text}")
-            else:
-                # Check the difference between input_text and llama_response using difflib
-                differ = difflib.Differ()
-                input_tokens = input_text.split()
-                llama_response_tokens = llama_response.get("output").split()
-                diff = list(differ.compare(input_tokens, llama_response_tokens))
+                continue
 
-                # Calculate the number of added and removed tokens
-                added_tokens = sum(1 for d in diff if d.startswith('+ '))
-                removed_tokens = sum(1 for d in diff if d.startswith('- '))
+            # Check the difference between input_text and llama_response using difflib
+            diff = list(difflib.Differ().compare(input_text.split(), llama_response_output.split()))
 
-                # Check if the token difference is too much
-                if abs(added_tokens - removed_tokens) > 30:
-                    modified_input_text = input_text + "."
-                    if verbose_logging:
-                        visualize_differences(input_text, llama_response.get("output"))
-                    custom_print(f"Token difference too much. using original input_text: {input_text}")
-                    # await asyncio.sleep(0.3)  # Wait for 1 second before retrying
-                    return input_text
+            # Calculate the number of added and removed tokens
+            added_tokens = sum(1 for d in diff if d.startswith('+ '))
+            removed_tokens = sum(1 for d in diff if d.startswith('- '))
 
-                custom_print(f"Generated sentence:")
-                return llama_response.get("output")
+            # Check if the token difference is too much
+            if abs(added_tokens - removed_tokens) > 30:
+                modified_input_text = input_text + "."
+                if verbose_logging:
+                    visualize_differences(input_text, llama_response_output)
+                custom_print(f"Token difference too much. using original input_text: {input_text}")
+                return input_text
+
+            custom_print(f"Generated sentence:")
+            return llama_response_output
 
         except aiohttp.ClientError as client_error:
             # Handle specific client errors
@@ -150,6 +143,11 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
     logging.warning(f"Retry count exhausted. Using original sentence: {input_text}")
     return input_text
 
+
+async def get_llama_response(session, endpoint, input_text, max_tokens, timeout):
+    async with session.post(endpoint, json={"input_text": input_text, "max_tokens": max_tokens}, timeout=timeout) as response:
+        return await response.json()
+    
 
 async def process_sentence(sentence, session):
     # Filter and send the sentence asynchronously
@@ -185,7 +183,7 @@ async def process_paragraph(paragraph, session, chap_num):
         return paragraph.get_text()
 
     # Call the Llama agent and store the result in the cache
-    llama_response = await send_to_llama_agent(session, filtered_paragraph, max_tokens=32)
+    llama_response = await send_to_llama_agent(session, filtered_paragraph, max_tokens=-1)
     paragraph_cache[filtered_paragraph] = llama_response
 
     # Save the updated cache to file
@@ -328,14 +326,6 @@ async def process_raw_text(input_text, session, output_text_file):
             modified_text = '\n\n\n'.join(processed_sentences)
             output_file.write(modified_text)  # Add newline after each modified sentence
 
-    # Join the processed sentences back into a single text
-    # modified_text = '\n\n\n'.join(processed_sentences)
-
-    # # Save the modified text to the specified output file
-    # os.makedirs(os.path.dirname(output_text_file), exist_ok=True)
-    # with open(output_text_file, 'w', encoding='utf-8') as output_file:
-    #     output_file.write(modified_text)
-
     return "complete"
 
 
@@ -375,9 +365,11 @@ async def process_all_txt(input_folder, output_folder):
 
 def custom_print(message):
     if verbose_logging:
-        # print("verbose_logging:", verbose_logging)
         print(message)
 
-if __name__ == "__main__":
+def main():
     asyncio.run(process_all_epubs(input_folder, output_folder))
     # asyncio.run(process_all_txt(input_folder, output_folder))
+
+if __name__ == "__main__":
+    main()
