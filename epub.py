@@ -26,8 +26,8 @@ DEFAULT_LLAMA_URL = "http://localhost:8083/generate"
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description="EPUB Processing Script")
-parser.add_argument("-i", "--input", type=str, help="Input folder containing EPUB files", default=DEFAULT_INPUT_FOLDER)
-parser.add_argument("-o", "--output", type=str, help="Output folder for processed EPUB files", default=DEFAULT_OUTPUT_FOLDER)
+parser.add_argument("-i", "--input", type=str, help="Input folder containing EPUB files")
+parser.add_argument("-o", "--output", type=str, help="Output folder for processed EPUB files")
 parser.add_argument("--url", type=str, help="URL of the Llama agent", default=DEFAULT_LLAMA_URL)
 parser.add_argument("--no-cache", action="store_true", help="Disable caching (default is false)")
 parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
@@ -254,7 +254,7 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
     # Process each paragraph in the chapter sequentially
     for i, paragraph in enumerate(paragraphs[start_paragraph_index:], start=start_paragraph_index):
         # Process one paragraph at a time
-        if len(paragraph.get_text().split()) > 500:
+        if len(paragraph.get_text().split()) > 50:
             sentences = split_paragraph_into_sentences(paragraph.get_text())
 
             # Group sentences into new paragraphs, each containing approximately 500 words
@@ -262,7 +262,7 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
             new_paragraphs = []
             current_paragraph = ""
             for sentence in sentences:
-                if words_count + len(sentence.split()) <= 500:
+                if words_count + len(sentence.split()) <= 50:
                     current_paragraph += sentence + " "
                     words_count += len(sentence.split())
                 else:
