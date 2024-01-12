@@ -164,23 +164,36 @@ async def process_sentence(sentence, session):
 
     return output
 
+def split_paragraph_into_sentences(paragraph):
+    sentences = []
+    current_sentence = ""
+    for char in paragraph:
+        current_sentence += char
+        if char in ".!?":
+            sentences.append(current_sentence.strip())
+            current_sentence = ""
+    if current_sentence:
+        sentences.append(current_sentence.strip())
+    return sentences
 
 async def process_paragraph(paragraph, session, chap_num):
     global paragraph_cache  # Use the global cache variable
     # Filter and send the paragraph asynchronously
-    filtered_paragraph = await filter_text(paragraph.get_text())
+    paragraph_text = paragraph.get_text() if isinstance(paragraph, dict) else paragraph
+
+    filtered_paragraph = await filter_text(paragraph_text)
 
     # Check if the filtered paragraph is already in the cache
-    if filtered_paragraph in paragraph_cache:
+    if filtered_paragraph in paragraph_cache and paragraph_text != paragraph_cache[filtered_paragraph]:
         custom_print(f"Using cached paragraph.")
         if verbose_logging:
-            visualize_differences(paragraph.get_text(), paragraph_cache[filtered_paragraph])
+            visualize_differences(paragraph_text, paragraph_cache[filtered_paragraph])
         return paragraph_cache[filtered_paragraph]
 
     # Check if the filtered paragraph is too short
     if len(filtered_paragraph.split()) <= 10:
-        custom_print(f"Paragraph is too short. Using original paragraph: {paragraph.get_text()}")
-        return paragraph.get_text()
+        custom_print(f"Paragraph is too short. Using original paragraph: {paragraph_text}")
+        return paragraph_text
 
     # Call the Llama agent and store the result in the cache
     llama_response = await send_to_llama_agent(session, filtered_paragraph, max_tokens=-1)
@@ -191,7 +204,7 @@ async def process_paragraph(paragraph, session, chap_num):
         save_cache_to_file(chap_num)
 
     if verbose_logging:
-        visualize_differences(paragraph.get_text(), llama_response)
+        visualize_differences(paragraph_text, llama_response)
 
     return llama_response
 
@@ -241,8 +254,33 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
     # Process each paragraph in the chapter sequentially
     for i, paragraph in enumerate(paragraphs[start_paragraph_index:], start=start_paragraph_index):
         # Process one paragraph at a time
-        modified_paragraph = await process_paragraph(paragraph, session, chap_num)
-        chapter_content = chapter_content.replace(paragraph.get_text(), modified_paragraph)
+        if len(paragraph.get_text().split()) > 500:
+            sentences = split_paragraph_into_sentences(paragraph.get_text())
+
+            # Group sentences into new paragraphs, each containing approximately 500 words
+            words_count = 0
+            new_paragraphs = []
+            current_paragraph = ""
+            for sentence in sentences:
+                if words_count + len(sentence.split()) <= 500:
+                    current_paragraph += sentence + " "
+                    words_count += len(sentence.split())
+                else:
+                    new_paragraphs.append(current_paragraph.strip())
+                    current_paragraph = sentence + " "
+                    words_count = len(sentence.split())
+
+            if current_paragraph:
+                new_paragraphs.append(current_paragraph.strip())
+
+            # Process each new paragraph separately
+            for new_paragraph in new_paragraphs:
+                modified_paragraph = await process_paragraph(new_paragraph, session, chap_num)
+                chapter_content = chapter_content.replace(new_paragraph, modified_paragraph)
+        else:
+            # Process normal paragraphs
+            modified_paragraph = await process_paragraph(paragraph.get_text(), session, chap_num)
+            chapter_content = chapter_content.replace(paragraph.get_text(), modified_paragraph)
 
         # Save the updated cache to file for each paragraph
         if use_cache:
@@ -253,6 +291,7 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
         custom_print(f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.\n")
         if not verbose_logging:
             progress_bar_chapter.update(1)
+
     # Update the chapter content
     chapter.set_content(chapter_content.encode('utf-8'))
 

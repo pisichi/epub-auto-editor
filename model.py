@@ -12,12 +12,16 @@ n_ctx = int(os.getenv("N_CTX"))
 n_batch = int(os.getenv("N_BATCH"))
 agent_prompt = os.getenv("AGENT_PROMPT")
 predefined_messages_formatter_type = os.getenv("PREDEFINED_MESSAGES_FORMATTER_TYPE")
-debug_output = os.getenv("DEBUG_OUTPUT") == "True"
+debug_output = os.getenv("DEBUG_MODEL_OUTPUT") == "True"
 
 class Model:
     def __init__(self, model_path):
         print('Initializing model...this may take a while.')
-        self.llm = Llama(model_path=model_path, n_gpu_layers=n_gpu_layers,
+        current_working_directory = os.getcwd()
+        relative_path = os.path.relpath(model_path, current_working_directory)
+
+
+        self.llm = Llama(model_path=relative_path, n_gpu_layers=n_gpu_layers,
                          n_ctx=n_ctx, n_batch=n_batch, use_mmap=False, verbose=debug_output)
 
         self.wrapped_model = LlamaCppAgent(self.llm, debug_output=debug_output,
