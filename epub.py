@@ -12,7 +12,7 @@ import chardet
 import argparse
 from dotenv import load_dotenv
 import logging
-from tqdm import tqdm 
+from tqdm import tqdm
 from model import Model
 
 # Load environment variables from the .env file
@@ -22,24 +22,33 @@ load_dotenv()
 DEFAULT_INPUT_FOLDER = "input"
 DEFAULT_OUTPUT_FOLDER = "output"
 CACHE_FOLDER = "cache"  # cache folder
-DEFAULT_LLAMA_URL = "http://localhost:8083/generate"
+DEFAULT_LLAMA_URL = ""
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description="EPUB Processing Script")
-parser.add_argument("-i", "--input", type=str, help="Input folder containing EPUB files")
-parser.add_argument("-o", "--output", type=str, help="Output folder for processed EPUB files")
-parser.add_argument("--url", type=str, help="URL of the Llama agent", default=DEFAULT_LLAMA_URL)
-parser.add_argument("--no-cache", action="store_true", help="Disable caching (default is false)")
-parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-parser.add_argument("--model-path", type=str, help="Path to the model", default=os.getenv("MODEL_PATH"))
+parser.add_argument("-i", "--input", type=str,
+                    help="Input folder containing EPUB files")
+parser.add_argument("-o", "--output", type=str,
+                    help="Output folder for processed EPUB files")
+parser.add_argument("--url", type=str,
+                    help="URL of the Llama agent", default=DEFAULT_LLAMA_URL)
+parser.add_argument("--no-cache", action="store_true",
+                    help="Disable caching (default is false)")
+parser.add_argument("--verbose", action="store_true",
+                    help="Enable verbose logging")
+parser.add_argument("--model-path", type=str,
+                    help="Path to the model", default=os.getenv("MODEL_PATH"))
 args = parser.parse_args()
 
 # Read parameters from environment variables if not provided via command line
 input_folder = args.input or os.getenv("INPUT_FOLDER", DEFAULT_INPUT_FOLDER)
-output_folder = args.output or os.getenv("OUTPUT_FOLDER", DEFAULT_OUTPUT_FOLDER)
+output_folder = args.output or os.getenv(
+    "OUTPUT_FOLDER", DEFAULT_OUTPUT_FOLDER)
 llama_url = args.url or os.getenv("LLAMA_URL", DEFAULT_LLAMA_URL)
-use_cache = not args.no_cache if args.no_cache is not None else not os.getenv("NO_CACHE", True)
-verbose_logging = args.verbose or (os.getenv("VERBOSE", "False").lower() == "true")
+use_cache = not args.no_cache if args.no_cache is not None else not os.getenv(
+    "NO_CACHE", True)
+verbose_logging = args.verbose or (
+    os.getenv("VERBOSE", "False").lower() == "true")
 model_path = args.model_path or os.getenv("MODEL_PATH")
 
 book_title = "ebook"
@@ -54,13 +63,18 @@ if os.getenv("MODEL_PATH"):
     model = Model(model_path)
 
 # Function to generate a unique cache file name for each book
+
+
 def get_cache_file_name(chapter_num):
     return f"{book_title}_cache_chapter_{chapter_num}.json"
 
 # Function to save cache to file for a specific book
+
+
 def save_cache_to_file(chapter_num):
     global paragraph_cache
-    cache_file = os.path.join(CACHE_FOLDER, book_title, get_cache_file_name(chapter_num))
+    cache_file = os.path.join(CACHE_FOLDER, book_title,
+                              get_cache_file_name(chapter_num))
     os.makedirs(os.path.dirname(cache_file), exist_ok=True)
     with open(cache_file, 'w') as cache_file:
         json.dump(paragraph_cache, cache_file, indent=2)
@@ -69,7 +83,8 @@ def save_cache_to_file(chapter_num):
 # Function to load cache from file for a specific book
 def load_cache_from_file(chapter_num):
     global paragraph_cache
-    cache_file = os.path.join(CACHE_FOLDER, book_title, get_cache_file_name(chapter_num))
+    cache_file = os.path.join(CACHE_FOLDER, book_title,
+                              get_cache_file_name(chapter_num))
     if os.path.exists(cache_file):
         with open(cache_file, 'r') as cache_file:
             paragraph_cache = json.load(cache_file)
@@ -88,9 +103,11 @@ def visualize_differences(original, modified):
         if token.startswith(' '):
             print(token, end='')
         elif token.startswith('- '):
-            print(f" \033[91m{token[2:]}\033[0m", end='')  # Red color for deleted words
+            # Red color for deleted words
+            print(f" \033[91m{token[2:]}\033[0m", end='')
         elif token.startswith('+ '):
-            print(f" \033[92m{token[2:]}\033[0m", end='')  # Green color for added words
+            # Green color for added words
+            print(f" \033[92m{token[2:]}\033[0m", end='')
 
 
 async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, timeout=5000):
@@ -103,7 +120,8 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
             llama_response = await model.generate(input_text, max_tokens) if os.getenv("MODEL_PATH") else await get_llama_response(session, endpoint, input_text, max_tokens, timeout)
 
             # if llama_response is an object with output, else just use llama_response as is
-            llama_response_output = llama_response.get("output", llama_response) if isinstance(llama_response, dict) else llama_response
+            llama_response_output = llama_response.get(
+                "output", llama_response) if isinstance(llama_response, dict) else llama_response
 
             # Early return for invalid cases
             if not llama_response_output or len(llama_response_output) < 1:
@@ -111,7 +129,8 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
                 continue
 
             # Check the difference between input_text and llama_response using difflib
-            diff = list(difflib.Differ().compare(input_text.split(), llama_response_output.split()))
+            diff = list(difflib.Differ().compare(
+                input_text.split(), llama_response_output.split()))
 
             # Calculate the number of added and removed tokens
             added_tokens = sum(1 for d in diff if d.startswith('+ '))
@@ -122,7 +141,8 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
                 modified_input_text = input_text + "."
                 if verbose_logging:
                     visualize_differences(input_text, llama_response_output)
-                custom_print(f"Token difference too much. using original input_text: {input_text}")
+                custom_print(
+                    f"Token difference too much. using original input_text: {input_text}")
                 return input_text
 
             custom_print(f"Generated sentence:")
@@ -137,32 +157,40 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
             # Catch other exceptions
             custom_print(f"An error occurred: {e}")
 
-        await asyncio.sleep(0.3)  # Wait for 1 second before retrying
+        # await asyncio.sleep(0.3)  # Wait for 1 second before retrying
 
     # Return the original sentence if retry count is exhausted
-    logging.warning(f"Retry count exhausted. Using original sentence: {input_text}")
+    logging.warning(
+        f"Retry count exhausted. Using original sentence: {input_text}")
     return input_text
 
 
 async def get_llama_response(session, endpoint, input_text, max_tokens, timeout):
     async with session.post(endpoint, json={"input_text": input_text, "max_tokens": max_tokens}, timeout=timeout) as response:
         return await response.json()
-    
+
 
 async def process_sentence(sentence, session):
     # Filter and send the sentence asynchronously
     filtered_sentence = await filter_text(sentence)
 
+    if len(filtered_sentence.split()) <= 3:
+        custom_print(
+            f"Paragraph is too short. Using original paragraph: {filtered_sentence}")
+        return filtered_sentence
+
     endpoint = llama_url
 
-    async with session.post(endpoint, json={"input_text": filtered_sentence, "max_tokens": -1}, timeout=5000) as response:
-        llama_response = await response.json()
+    llama_response = await model.generate(filtered_sentence, -1) if os.getenv("MODEL_PATH") else await get_llama_response(session, endpoint, filtered_sentence, -1, 5000)
 
-    output = llama_response.get("output")
-    print(f"{output}\n")
+    llama_response = llama_response.get("output", llama_response) if isinstance(
+        llama_response, dict) else llama_response
 
+    visualize_differences(filtered_sentence, llama_response)
+    print(f"\n")
 
-    return output
+    return llama_response
+
 
 def split_paragraph_into_sentences(paragraph):
     sentences = []
@@ -176,6 +204,7 @@ def split_paragraph_into_sentences(paragraph):
         sentences.append(current_sentence.strip())
     return sentences
 
+
 async def process_paragraph(paragraph, session, chap_num):
     global paragraph_cache  # Use the global cache variable
     # Filter and send the paragraph asynchronously
@@ -184,15 +213,18 @@ async def process_paragraph(paragraph, session, chap_num):
     filtered_paragraph = await filter_text(paragraph_text)
 
     # Check if the filtered paragraph is already in the cache
-    if filtered_paragraph in paragraph_cache and paragraph_text != paragraph_cache[filtered_paragraph]:
+    # if filtered_paragraph in paragraph_cache and paragraph_text != paragraph_cache[filtered_paragraph]:
+
+    if filtered_paragraph in paragraph_cache:
         custom_print(f"Using cached paragraph.")
-        if verbose_logging:
-            visualize_differences(paragraph_text, paragraph_cache[filtered_paragraph])
+        # if verbose_logging:
+        #     visualize_differences(paragraph_text, paragraph_cache[filtered_paragraph])
         return paragraph_cache[filtered_paragraph]
 
     # Check if the filtered paragraph is too short
-    if len(filtered_paragraph.split()) <= 10:
-        custom_print(f"Paragraph is too short. Using original paragraph: {paragraph_text}")
+    if len(filtered_paragraph.split()) <= 8:
+        custom_print(
+            f"Paragraph is too short. Using original paragraph: {paragraph_text}")
         return paragraph_text
 
     # Call the Llama agent and store the result in the cache
@@ -248,13 +280,13 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
     start_paragraph_index = progress_data.get(str(chapter), 0)
 
     if not verbose_logging:
-        progress_bar_chapter = tqdm(total=total_paragraphs, desc=f"Book progress: {chap_num + 1}/{total_chapters} chapters processed.", dynamic_ncols=True)
-
+        progress_bar_chapter = tqdm(
+            total=total_paragraphs, desc=f"Book progress: {chap_num + 1}/{total_chapters} chapters processed.", dynamic_ncols=True)
 
     # Process each paragraph in the chapter sequentially
     for i, paragraph in enumerate(paragraphs[start_paragraph_index:], start=start_paragraph_index):
         # Process one paragraph at a time
-        if len(paragraph.get_text().split()) > 50:
+        if len(paragraph.get_text().split()) > 300:
             sentences = split_paragraph_into_sentences(paragraph.get_text())
 
             # Group sentences into new paragraphs, each containing approximately 500 words
@@ -262,7 +294,7 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
             new_paragraphs = []
             current_paragraph = ""
             for sentence in sentences:
-                if words_count + len(sentence.split()) <= 50:
+                if words_count + len(sentence.split()) <= 300:
                     current_paragraph += sentence + " "
                     words_count += len(sentence.split())
                 else:
@@ -276,19 +308,23 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
             # Process each new paragraph separately
             for new_paragraph in new_paragraphs:
                 modified_paragraph = await process_paragraph(new_paragraph, session, chap_num)
-                chapter_content = chapter_content.replace(new_paragraph, modified_paragraph)
+                chapter_content = chapter_content.replace(
+                    new_paragraph, modified_paragraph)
         else:
             # Process normal paragraphs
             modified_paragraph = await process_paragraph(paragraph.get_text(), session, chap_num)
-            chapter_content = chapter_content.replace(paragraph.get_text(), modified_paragraph)
+            chapter_content = chapter_content.replace(
+                paragraph.get_text(), modified_paragraph)
 
         # Save the updated cache to file for each paragraph
         if use_cache:
             save_cache_to_file(chap_num)
 
         # Print progress
-        custom_print(f"\nBook progress: {chap_num + 1}/{total_chapters} chapters processed.")
-        custom_print(f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.\n")
+        custom_print(
+            f"\nBook progress: {chap_num + 1}/{total_chapters} chapters processed.")
+        custom_print(
+            f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.\n")
         if not verbose_logging:
             progress_bar_chapter.update(1)
 
@@ -314,30 +350,44 @@ async def process_all_epubs(input_folder, output_folder):
 
                 # Extract the book title from the EPUB metadata or use the file name
                 global book_title
-                book_title = book.get_metadata("DC", "title")[0][0] if book.get_metadata("DC", "title") else os.path.splitext(os.path.basename(input_file))[0]
+                book_title = book.get_metadata("DC", "title")[0][0] if book.get_metadata(
+                    "DC", "title") else os.path.splitext(os.path.basename(input_file))[0]
 
                 # Update the output folder for the specific book title
                 book_output_folder = os.path.join(output_folder, book_title)
                 os.makedirs(book_output_folder, exist_ok=True)
 
                 global total_chapters
-                total_chapters = sum(1 for item in book.items if isinstance(item, ebooklib.epub.EpubItem) and re.match(r'^Text/.*', item.file_name))
+                total_chapters = total_chapters = sum(
+                    1 for item in book.items
+                    if isinstance(item, ebooklib.epub.EpubItem) and "<p>" in item.content.decode('utf-8', errors='ignore')
+                )
 
                 # Process each chapter in the book sequentially
                 for i, item in enumerate(book.items):
-                    if isinstance(item, ebooklib.epub.EpubItem) and re.match(r'^Text/.*', item.file_name):
-                        custom_print(f"Chapter name '{item.file_name}'")
-                        await process_chapter(item, session, {}, book_title, output_folder, i)
+                    if isinstance(item, ebooklib.epub.EpubItem):
+                        # Read the chapter content
+                        chapter_content = item.content.decode('utf-8', errors='ignore')  # Decode the content
+
+
+                        # Check if the detected language is English and confidence is high
+
+                        if "<p>" in chapter_content:
+                            custom_print(f"Chapter name '{item.file_name}'")
+                            await process_chapter(item, session, {}, book_title, output_folder, i)
 
                 # Save the modified book to a new EPUB file
                 output_epub_filename = f"{book_title}_{datetime.now().strftime('%Y%m%d')}.epub"
-                output_epub_file = get_unique_filename(output_folder, book_title, output_epub_filename)
+                output_epub_file = get_unique_filename(
+                    output_folder, book_title, output_epub_filename)
                 epub.write_epub(output_epub_file, book)
-                custom_print(f"EPUB processing complete. Output saved to {output_epub_file}")
+                custom_print(
+                    f"EPUB processing complete. Output saved to {output_epub_file}")
 
                 # Save the modified content to a text file
                 output_text_filename = f"{book_title}_{datetime.now().strftime('%Y%m%d')}.txt"
-                output_text_file = get_unique_filename(output_folder, book_title, output_text_filename)
+                output_text_file = get_unique_filename(
+                    output_folder, book_title, output_text_filename)
                 await save_to_text(book, output_text_file)
                 custom_print(f"Text content saved to {output_text_file}")
 
@@ -363,7 +413,7 @@ async def process_raw_text(input_text, session, output_text_file):
         processed_sentences.append(modified_sentence)
         with open(output_text_file, 'w', encoding='utf-8') as output_file:
             modified_text = '\n\n\n'.join(processed_sentences)
-            output_file.write(modified_text)  # Add newline after each modified sentence
+            output_file.write(modified_text)
 
     return "complete"
 
@@ -396,19 +446,23 @@ async def process_all_txt(input_folder, output_folder):
 
                 # Process the raw text and save modified text to a new file
                 output_txt_filename = f"{os.path.splitext(filename)[0]}_modified_{datetime.now().strftime('%Y%m%d')}.txt"
-                output_txt_file = os.path.join(output_folder, output_txt_filename)
+                output_txt_file = os.path.join(
+                    output_folder, output_txt_filename)
                 modified_text = await process_raw_text(raw_text, session, output_txt_file)
 
-                custom_print(f"TXT processing complete. Output saved to {output_txt_file}")
+                custom_print(
+                    f"TXT processing complete. Output saved to {output_txt_file}")
 
 
 def custom_print(message):
     if verbose_logging:
         print(message)
 
+
 def main():
     asyncio.run(process_all_epubs(input_folder, output_folder))
     # asyncio.run(process_all_txt(input_folder, output_folder))
+
 
 if __name__ == "__main__":
     main()
