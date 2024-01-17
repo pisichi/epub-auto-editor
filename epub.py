@@ -58,8 +58,8 @@ paragraph_cache = {}
 
 total_chapters = 0
 total_books = 0
-min_paragraph_characters = 500
-max_paragraph_characters = 700
+min_paragraph_characters = 300
+max_paragraph_characters = 500
 
 if os.getenv("MODEL_PATH"):
     model = Model(model_path)
@@ -93,7 +93,18 @@ def load_cache_from_file(chapter_num):
 
 
 async def filter_text(sentence):
-    # TODO
+    # Define regex patterns and replacement rules in sequential order
+    rules = [
+        (r'SCENE CHANGE', '\n-]|[-\n'),
+        (r'\b(?i)(?:an:|author[\'’]s? note:)\b.*', ''),
+        (r'Author Note.*', ''),
+        # Add more rules as needed
+    ]
+
+    # Process the sentence with each regex pattern and its replacement
+    for pattern, replacement in rules:
+        sentence = re.sub(pattern, replacement, sentence)
+
     return sentence
 
 
@@ -147,7 +158,7 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
                     f"Token difference too much. using original input_text: {input_text}")
                 return input_text
 
-            custom_print(f"Generated sentence:")
+            custom_print(f"\nGenerated sentence:")
             return llama_response_output
 
         except aiohttp.ClientError as client_error:
@@ -164,6 +175,7 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
     # Return the original sentence if retry count is exhausted
     logging.warning(
         f"Retry count exhausted. Using original sentence: {input_text}")
+
     return input_text
 
 
@@ -175,6 +187,10 @@ async def get_llama_response(session, endpoint, input_text, max_tokens, timeout)
 async def process_sentence(sentence, session):
     # Filter and send the sentence asynchronously
     filtered_sentence = await filter_text(sentence)
+
+    if filtered_sentence is None or not filtered_sentence.strip():
+        custom_print('Null message.')
+        return ""
 
     if len(filtered_sentence.split()) <= 3:
         custom_print(
@@ -213,6 +229,16 @@ async def process_paragraph(paragraph, session, chap_num):
     paragraph_text = paragraph.get_text() if isinstance(paragraph, dict) else paragraph
 
     filtered_paragraph = await filter_text(paragraph_text)
+
+    if filtered_paragraph is None or not filtered_paragraph.strip():
+        # Save the updated cache to file
+        if use_cache:
+            save_cache_to_file(chap_num)
+
+        if verbose_logging:
+            visualize_differences(paragraph_text, filtered_paragraph)
+
+        return ""
 
     # Check if the filtered paragraph is already in the cache
     # if filtered_paragraph in paragraph_cache and paragraph_text != paragraph_cache[filtered_paragraph]:
@@ -285,8 +311,8 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
     while i < total_paragraphs:
         current_paragraph = paragraphs[i].get_text().strip()
 
-        # Merge adjacent paragraphs until each paragraph has more than 300 characters
-        while i < total_paragraphs - 1 and len(current_paragraph + " " + paragraphs[i + 1].get_text().strip()) <= 300:
+        # Merge adjacent paragraphs until each paragraph has more than min_paragraph_characters
+        while i < total_paragraphs - 1 and len(current_paragraph + " " + paragraphs[i + 1].get_text().strip()) <= min_paragraph_characters:
             current_paragraph += "\n " + paragraphs[i + 1].get_text().strip()
             i += 1
 
@@ -319,11 +345,11 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
     # Process each paragraph in the chapter sequentially
     for i, paragraph in enumerate(paragraphs[start_paragraph_index:], start=start_paragraph_index):
         # Process one paragraph at a time
-             # Print progress
+        # Print progress
         custom_print(
-                f"\nBook progress: {chap_num + 1}/{total_chapters} chapters processed.")
+            f"\nBook progress: {chap_num + 1}/{total_chapters} chapters processed.")
         custom_print(
-                f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.\n")
+            f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.\n")
 
         if not verbose_logging:
             progress_bar_chapter.update(1)
@@ -350,27 +376,43 @@ async def process_individual_paragraph(paragraph, session, chap_num):
 async def process_large_paragraph(paragraph, session, chap_num):
     sentences = split_paragraph_into_sentences(paragraph.get_text())
 
-    # Group sentences into new paragraphs, each containing approximately 500 words
-    words_count = 0
+    sentences = merge_paragraphs(sentences)
+
     new_paragraphs = []
-    current_paragraph = ""
 
+    # Process each sentence separately asynchronously
     for sentence in sentences:
-        if words_count + len(sentence.split()) <= max_paragraph_characters:
-            current_paragraph += sentence + " "
-            words_count += len(sentence.split())
-        else:
-            new_paragraphs.append(current_paragraph.strip())
-            current_paragraph = sentence + " "
-            words_count = len(sentence.split())
+        processed_sentence = await process_paragraph(sentence, session, chap_num)
+        custom_print(f"\n")
+        new_paragraphs.append(processed_sentence)
 
-    if current_paragraph:
-        new_paragraphs.append(current_paragraph.strip())
+    # Merge the processed sentences into a single result
+    final_result = "\n".join(new_paragraphs)
 
-    # Process each new paragraph separately
-    processed_paragraphs = [await process_paragraph(new_paragraph, session, chap_num) for new_paragraph in new_paragraphs]
+    # Return the final result
+    return final_result
 
-    return " ".join(processed_paragraphs)
+
+def merge_paragraphs(sentences):
+    merged_paragraphs = []
+
+    i = 0
+    total_sentences = len(sentences)
+
+    while i < total_sentences:
+        current_sentence = sentences[i].strip()
+
+        # Merge adjacent sentences until each paragraph has more than min_paragraph_characters
+        while i < total_sentences - 1 and len(current_sentence + " " + sentences[i + 1].strip()) <= min_paragraph_characters:
+            current_sentence += "\n " + sentences[i + 1].strip()
+            i += 1
+
+        # Append the merged paragraph to the new list
+        merged_paragraphs.append(current_sentence)
+
+        i += 1
+
+    return merged_paragraphs
 
 
 async def process_all_epubs(input_folder, output_folder):
