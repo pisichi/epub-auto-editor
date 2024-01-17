@@ -58,6 +58,8 @@ paragraph_cache = {}
 
 total_chapters = 0
 total_books = 0
+min_paragraph_characters = 500
+max_paragraph_characters = 700
 
 if os.getenv("MODEL_PATH"):
     model = Model(model_path)
@@ -157,7 +159,7 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
             # Catch other exceptions
             custom_print(f"An error occurred: {e}")
 
-        # await asyncio.sleep(0.3)  # Wait for 1 second before retrying
+        # await asyncio.sleep(0.3)
 
     # Return the original sentence if retry count is exhausted
     logging.warning(
@@ -276,6 +278,37 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
     paragraphs = soup.find_all(['p'])
     total_paragraphs = len(paragraphs)
 
+    # Create a new list to store merged paragraphs
+    merged_paragraphs = []
+
+    i = 0
+    while i < total_paragraphs:
+        current_paragraph = paragraphs[i].get_text().strip()
+
+        # Merge adjacent paragraphs until each paragraph has more than 300 characters
+        while i < total_paragraphs - 1 and len(current_paragraph + " " + paragraphs[i + 1].get_text().strip()) <= 300:
+            current_paragraph += "\n " + paragraphs[i + 1].get_text().strip()
+            i += 1
+
+        # Append the merged paragraph to the new list
+        merged_paragraphs.append(current_paragraph)
+
+        i += 1
+
+    # Clear the existing paragraphs in the soup
+    for paragraph in paragraphs:
+        paragraph.decompose()
+
+    # Add the merged paragraphs back to the soup
+    for merged_paragraph in merged_paragraphs:
+        new_paragraph_tag = soup.new_tag('p')
+        new_paragraph_tag.string = merged_paragraph
+        soup.append(new_paragraph_tag)
+
+    # After merging and removing, update the total_paragraphs
+    paragraphs = soup.find_all(['p'])
+    total_paragraphs = len(paragraphs)
+
     # Get the saved progress for the current chapter
     start_paragraph_index = progress_data.get(str(chapter), 0)
 
@@ -286,54 +319,61 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
     # Process each paragraph in the chapter sequentially
     for i, paragraph in enumerate(paragraphs[start_paragraph_index:], start=start_paragraph_index):
         # Process one paragraph at a time
-        if len(paragraph.get_text().split()) > 300:
-            sentences = split_paragraph_into_sentences(paragraph.get_text())
+             # Print progress
+        custom_print(
+                f"\nBook progress: {chap_num + 1}/{total_chapters} chapters processed.")
+        custom_print(
+                f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.\n")
 
-            # Group sentences into new paragraphs, each containing approximately 500 words
-            words_count = 0
-            new_paragraphs = []
-            current_paragraph = ""
-            for sentence in sentences:
-                if words_count + len(sentence.split()) <= 300:
-                    current_paragraph += sentence + " "
-                    words_count += len(sentence.split())
-                else:
-                    new_paragraphs.append(current_paragraph.strip())
-                    current_paragraph = sentence + " "
-                    words_count = len(sentence.split())
+        if not verbose_logging:
+            progress_bar_chapter.update(1)
 
-            if current_paragraph:
-                new_paragraphs.append(current_paragraph.strip())
-
-            # Process each new paragraph separately
-            for new_paragraph in new_paragraphs:
-                modified_paragraph = await process_paragraph(new_paragraph, session, chap_num)
-                chapter_content = chapter_content.replace(
-                    new_paragraph, modified_paragraph)
-        else:
-            # Process normal paragraphs
-            modified_paragraph = await process_paragraph(paragraph.get_text(), session, chap_num)
-            chapter_content = chapter_content.replace(
-                paragraph.get_text(), modified_paragraph)
+        processed_paragraph = await process_individual_paragraph(paragraph, session, chap_num)
+        chapter_content = chapter_content.replace(
+            paragraph.get_text(), processed_paragraph)
 
         # Save the updated cache to file for each paragraph
         if use_cache:
             save_cache_to_file(chap_num)
 
-        # Print progress
-        custom_print(
-            f"\nBook progress: {chap_num + 1}/{total_chapters} chapters processed.")
-        custom_print(
-            f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.\n")
-        if not verbose_logging:
-            progress_bar_chapter.update(1)
-
     # Update the chapter content
     chapter.set_content(chapter_content.encode('utf-8'))
 
 
-async def process_all_epubs(input_folder, output_folder):
+async def process_individual_paragraph(paragraph, session, chap_num):
+    if len(paragraph.get_text().split()) > max_paragraph_characters:
+        return await process_large_paragraph(paragraph, session, chap_num)
+    else:
+        return await process_paragraph(paragraph.get_text(), session, chap_num)
 
+
+async def process_large_paragraph(paragraph, session, chap_num):
+    sentences = split_paragraph_into_sentences(paragraph.get_text())
+
+    # Group sentences into new paragraphs, each containing approximately 500 words
+    words_count = 0
+    new_paragraphs = []
+    current_paragraph = ""
+
+    for sentence in sentences:
+        if words_count + len(sentence.split()) <= max_paragraph_characters:
+            current_paragraph += sentence + " "
+            words_count += len(sentence.split())
+        else:
+            new_paragraphs.append(current_paragraph.strip())
+            current_paragraph = sentence + " "
+            words_count = len(sentence.split())
+
+    if current_paragraph:
+        new_paragraphs.append(current_paragraph.strip())
+
+    # Process each new paragraph separately
+    processed_paragraphs = [await process_paragraph(new_paragraph, session, chap_num) for new_paragraph in new_paragraphs]
+
+    return " ".join(processed_paragraphs)
+
+
+async def process_all_epubs(input_folder, output_folder):
     # Ensure the output folder and cache folder exist
     os.makedirs(output_folder, exist_ok=True)
     os.makedirs(CACHE_FOLDER, exist_ok=True)
@@ -341,55 +381,42 @@ async def process_all_epubs(input_folder, output_folder):
     # Process all EPUB files in the input folder sequentially
     for filename in os.listdir(input_folder):
         if filename.endswith(".epub"):
-            input_file = os.path.join(input_folder, filename)
-
-            # Create an aiohttp session
-            async with aiohttp.ClientSession() as session:
-                # Read the EPUB file
-                book = epub.read_epub(input_file)
-
-                # Extract the book title from the EPUB metadata or use the file name
-                global book_title
-                book_title = book.get_metadata("DC", "title")[0][0] if book.get_metadata(
-                    "DC", "title") else os.path.splitext(os.path.basename(input_file))[0]
-
-                # Update the output folder for the specific book title
-                book_output_folder = os.path.join(output_folder, book_title)
-                os.makedirs(book_output_folder, exist_ok=True)
-
-                global total_chapters
-                total_chapters = total_chapters = sum(
-                    1 for item in book.items
-                    if isinstance(item, ebooklib.epub.EpubItem) and "<p>" in item.content.decode('utf-8', errors='ignore')
-                )
-
-                # Process each chapter in the book sequentially
-                for i, item in enumerate(book.items):
-                    if isinstance(item, ebooklib.epub.EpubItem):
-                        # Read the chapter content
-                        chapter_content = item.content.decode('utf-8', errors='ignore')  # Decode the content
+            await process_epub_file(os.path.join(input_folder, filename), output_folder)
 
 
-                        # Check if the detected language is English and confidence is high
+async def process_epub_file(input_file, output_folder):
+    global book_title, total_chapters
 
-                        if "<p>" in chapter_content:
-                            custom_print(f"Chapter name '{item.file_name}'")
-                            await process_chapter(item, session, {}, book_title, output_folder, i)
+    # Create an aiohttp session
+    async with aiohttp.ClientSession() as session:
+        # Read the EPUB file
+        book = epub.read_epub(input_file)
 
-                # Save the modified book to a new EPUB file
-                output_epub_filename = f"{book_title}_{datetime.now().strftime('%Y%m%d')}.epub"
-                output_epub_file = get_unique_filename(
-                    output_folder, book_title, output_epub_filename)
-                epub.write_epub(output_epub_file, book)
-                custom_print(
-                    f"EPUB processing complete. Output saved to {output_epub_file}")
+        # Extract the book title from the EPUB metadata or use the file name
+        book_title = book.get_metadata("DC", "title")[0][0] if book.get_metadata("DC", "title") else os.path.splitext(
+            os.path.basename(input_file))[0]
 
-                # Save the modified content to a text file
-                output_text_filename = f"{book_title}_{datetime.now().strftime('%Y%m%d')}.txt"
-                output_text_file = get_unique_filename(
-                    output_folder, book_title, output_text_filename)
-                await save_to_text(book, output_text_file)
-                custom_print(f"Text content saved to {output_text_file}")
+        # Update the output folder for the specific book title
+        book_output_folder = os.path.join(output_folder, book_title)
+        os.makedirs(book_output_folder, exist_ok=True)
+
+        total_chapters = sum(
+            1 for item in book.items
+            if isinstance(item, epub.EpubItem) and "<p>" in item.content.decode('utf-8', errors='ignore')
+        )
+
+        # Process each chapter in the book sequentially
+        for i, item in enumerate(book.items):
+            if isinstance(item, epub.EpubItem) and "<p>" in item.content.decode('utf-8', errors='ignore'):
+                await process_chapter(item, session, {}, book_title, output_folder, i)
+
+        # Save the modified book to a new EPUB file
+        output_epub_filename = f"{book_title}_{datetime.now().strftime('%Y%m%d')}.epub"
+        output_epub_file = get_unique_filename(
+            output_folder, book_title, output_epub_filename)
+        epub.write_epub(output_epub_file, book)
+        custom_print(
+            f"EPUB processing complete. Output saved to {output_epub_file}")
 
 
 def get_unique_filename(folder, title, base_filename):
