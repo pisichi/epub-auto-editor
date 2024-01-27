@@ -355,15 +355,20 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
             progress_bar_chapter.update(1)
 
         processed_paragraph = await process_individual_paragraph(paragraph, session, chap_num)
-        chapter_content = chapter_content.replace(
-            paragraph.get_text(), processed_paragraph)
+        print(processed_paragraph)
+        new_paragraph_tag = soup.new_tag('p')
+        new_paragraph_tag.string = processed_paragraph
+        soup.append(new_paragraph_tag)
+        # chapter_content = chapter_content.replace(
+        #     paragraph.get_text(), processed_paragraph)
 
         # Save the updated cache to file for each paragraph
         if use_cache:
             save_cache_to_file(chap_num)
 
     # Update the chapter content
-    chapter.set_content(chapter_content.encode('utf-8'))
+    chapter.set_content((u'<html><body>' + str(soup) + '</body></html>').encode('utf-8'))
+
 
 
 async def process_individual_paragraph(paragraph, session, chap_num):
@@ -450,7 +455,7 @@ async def process_epub_file(input_file, output_folder):
         # Process each chapter in the book sequentially
         for i, item in enumerate(book.items):
             if isinstance(item, epub.EpubItem) and "<p>" in item.content.decode('utf-8', errors='ignore'):
-                await process_chapter(item, session, {}, book_title, output_folder, i)
+              await process_chapter(item, session, {}, book_title, output_folder, i)
 
         # Save the modified book to a new EPUB file
         output_epub_filename = f"{book_title}_{datetime.now().strftime('%Y%m%d')}.epub"
