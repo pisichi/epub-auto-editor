@@ -313,7 +313,7 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
 
         # Merge adjacent paragraphs until each paragraph has more than min_paragraph_characters
         while i < total_paragraphs - 1 and len(current_paragraph + " " + paragraphs[i + 1].get_text().strip()) <= min_paragraph_characters:
-            current_paragraph += "\n " + paragraphs[i + 1].get_text().strip()
+            current_paragraph += " " + paragraphs[i + 1].get_text().strip()
             i += 1
 
         # Append the merged paragraph to the new list
@@ -333,6 +333,7 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
 
     # After merging and removing, update the total_paragraphs
     paragraphs = soup.find_all(['p'])
+    soup.clear()
     total_paragraphs = len(paragraphs)
 
     # Get the saved progress for the current chapter
@@ -355,7 +356,6 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
             progress_bar_chapter.update(1)
 
         processed_paragraph = await process_individual_paragraph(paragraph, session, chap_num)
-        print(processed_paragraph)
         new_paragraph_tag = soup.new_tag('p')
         new_paragraph_tag.string = processed_paragraph
         soup.append(new_paragraph_tag)
@@ -392,7 +392,7 @@ async def process_large_paragraph(paragraph, session, chap_num):
         new_paragraphs.append(processed_sentence)
 
     # Merge the processed sentences into a single result
-    final_result = "\n".join(new_paragraphs)
+    final_result = " ".join(new_paragraphs)
 
     # Return the final result
     return final_result
@@ -409,7 +409,7 @@ def merge_paragraphs(sentences):
 
         # Merge adjacent sentences until each paragraph has more than min_paragraph_characters
         while i < total_sentences - 1 and len(current_sentence + " " + sentences[i + 1].strip()) <= min_paragraph_characters:
-            current_sentence += "\n " + sentences[i + 1].strip()
+            current_sentence += " " + sentences[i + 1].strip()
             i += 1
 
         # Append the merged paragraph to the new list
@@ -486,7 +486,7 @@ async def process_raw_text(input_text, session, output_text_file):
         modified_sentence = await process_sentence(sentence, session)
         processed_sentences.append(modified_sentence)
         with open(output_text_file, 'w', encoding='utf-8') as output_file:
-            modified_text = '\n\n\n'.join(processed_sentences)
+            modified_text = ' '.join(processed_sentences)
             output_file.write(modified_text)
 
     return "complete"
