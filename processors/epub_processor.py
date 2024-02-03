@@ -300,7 +300,7 @@ class EpubProcessor:
         return input_text
 
     async def get_llama_response(session, endpoint, input_text, max_tokens, timeout):
-        async with session.post(endpoint, json={"input_text": input_text, "max_tokens": max_tokens}, timeout=timeout) as response:
+        async with post_request(endpoint, json={"input_text": input_text, "max_tokens": max_tokens}, timeout=timeout) as response:
             return await response.json()
 
     async def process_large_paragraph(self, paragraph, session, chap_num):
