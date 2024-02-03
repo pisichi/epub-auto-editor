@@ -1,6 +1,8 @@
 # Generated/Cache file
 input/
 output/
+model/
+cache/
 *.epub
 *.json
 
