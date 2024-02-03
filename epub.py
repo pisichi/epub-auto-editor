@@ -58,8 +58,8 @@ paragraph_cache = {}
 
 total_chapters = 0
 total_books = 0
-min_paragraph_characters = 300
-max_paragraph_characters = 500
+min_paragraph_characters = 30
+max_paragraph_characters = 200
 
 if os.getenv("MODEL_PATH"):
     model = Model(model_path)
@@ -95,9 +95,9 @@ def load_cache_from_file(chapter_num):
 async def filter_text(sentence):
     # Define regex patterns and replacement rules in sequential order
     rules = [
-        (r'SCENE CHANGE', '\n-]|[-\n'),
-        (r'\b(?i)(?:an:|author[\'’]s? note:)\b.*', ''),
-        (r'Author Note.*', ''),
+        # (r'SCENE CHANGE', '\n-]|[-\n'),
+        # (r'\b(?i)(?:an:|author[\'’]s? note:)\b.*', ''),
+        # (r'Author Note.*', ''),
         # Add more rules as needed
     ]
 
@@ -170,8 +170,6 @@ async def send_to_llama_agent(session, input_text, max_tokens, retry_count=3, ti
             # Catch other exceptions
             custom_print(f"An error occurred: {e}")
 
-        # await asyncio.sleep(0.3)
-
     # Return the original sentence if retry count is exhausted
     logging.warning(
         f"Retry count exhausted. Using original sentence: {input_text}")
@@ -192,7 +190,7 @@ async def process_sentence(sentence, session):
         custom_print('Null message.')
         return ""
 
-    if len(filtered_sentence.split()) <= 3:
+    if len(filtered_sentence.split()) <= 0:
         custom_print(
             f"Paragraph is too short. Using original paragraph: {filtered_sentence}")
         return filtered_sentence
@@ -359,10 +357,6 @@ async def process_chapter(chapter, session, progress_data, book_title, output_fo
         new_paragraph_tag = soup.new_tag('p')
         new_paragraph_tag.string = processed_paragraph
         soup.append(new_paragraph_tag)
-        # chapter_content = chapter_content.replace(
-        #     paragraph.get_text(), processed_paragraph)
-
-        # Save the updated cache to file for each paragraph
         if use_cache:
             save_cache_to_file(chap_num)
 
