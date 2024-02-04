@@ -32,10 +32,7 @@ class EpubProcessor:
             return ""
 
     def is_content_chapter(self, item):
-        if isinstance(item, epub.EpubItem) and "<p>" in self.decode_content(item):
-            return True
-        else:
-            return False
+        return isinstance(item, epub.EpubItem) and "<p>" in self.decode_content(item)
 
     async def process_epub_file(self, input_file: str, output_folder: str):
         global book_title, total_chapters
@@ -61,7 +58,6 @@ class EpubProcessor:
             # Process each chapter in the book sequentially
             for i, item in chapter_items:
                 await self.process_chapter(item, session, {}, book_title, output_folder, i)
-
 
             # Save the modified book to a new EPUB file
             output_epub_filename = f"{book_title}_{datetime.now().strftime('%Y%m%d')}.epub"
@@ -121,7 +117,8 @@ class EpubProcessor:
                 progress_bar_chapter.update(1)
 
             processed_paragraph = await self.process_individual_paragraph(paragraph, session, chap_num)
-            chapter_content = chapter_content.replace(paragraph.get_text(), processed_paragraph)
+            chapter_content = chapter_content.replace(
+                paragraph.get_text(), processed_paragraph)
             if self.config.use_cache:
                 save_cache_to_file(self.config.CACHE_FOLDER,
                                    book_title, chap_num, self.paragraph_cache)
