@@ -1,18 +1,11 @@
 import asyncio
 import os
-import os
-import ebooklib
 from ebooklib import epub
 from bs4 import BeautifulSoup
-import re
 from datetime import datetime
 import aiohttp
 import asyncio
-import json
 import difflib
-import chardet
-import argparse
-from dotenv import load_dotenv
 import logging
 from tqdm import tqdm
 import aiohttp
