@@ -11,7 +11,7 @@ class Config:
         self.use_cache = not os.getenv("NO_CACHE", False)
         self.verbose_logging = os.getenv("VERBOSE", "False").lower() == "true"
         self.model_path = os.getenv("MODEL_PATH")
-        self.min_paragraph_characters = 300
+        # self.min_paragraph_characters = 300
         self.max_paragraph_characters = 2000
         self.rules = [
             # example for filtering out text using regex

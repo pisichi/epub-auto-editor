@@ -38,6 +38,12 @@ class EpubProcessor:
             self.logger.print(f"Error decoding content: {e}")
             return ""
 
+    def is_content_chapter(self, item):
+        if isinstance(item, epub.EpubItem) and "<p>" in self.decode_content(item):
+            return True
+        else:
+            return False
+
     async def process_epub_file(self, input_file: str, output_folder: str):
         global book_title, total_chapters
 
@@ -52,24 +58,25 @@ class EpubProcessor:
             os.makedirs(book_output_folder, exist_ok=True)
 
             total_chapters = sum(
-                1 for i, item in enumerate(book.items)
-                if isinstance(item, epub.EpubItem) and "<p>" in self.decode_content(item)
-            )
+                1 for item in book.items if self.is_content_chapter(item))
 
             chapter_items = [
                 (i, item) for i, item in enumerate(book.items)
-                if isinstance(item, epub.EpubItem) and "<p>" in self.decode_content(item)
+                if self.is_content_chapter(item)
             ]
 
             # Process each chapter in the book sequentially
             for i, item in chapter_items:
                 await self.process_chapter(item, session, {}, book_title, output_folder, i)
 
+
             # Save the modified book to a new EPUB file
             output_epub_filename = f"{book_title}_{datetime.now().strftime('%Y%m%d')}.epub"
             output_epub_file = self.get_unique_filename(
                 output_folder, book_title, output_epub_filename)
+
             epub.write_epub(output_epub_file, book)
+
             self.logger.print(
                 f"EPUB processing complete. Output saved to {output_epub_file}")
 
@@ -85,63 +92,21 @@ class EpubProcessor:
         if self.config.use_cache:
             self.paragraph_cache = load_cache_from_file(
                 self.config.CACHE_FOLDER, book_title, chap_num)
-        try:
-            # Try decoding using utf-8
-            chapter_content = chapter.get_content().decode('utf-8')
-        except UnicodeDecodeError:
-            # If decoding as utf-8 fails, try to detect the encoding
-            encoding_detection_result = chardet.detect(chapter.get_content())
-            detected_encoding = encoding_detection_result.get('encoding')
 
-            if detected_encoding:
-                chapter_content = chapter.get_content().decode(detected_encoding)
-            else:
-                # If detection fails, use a default encoding (e.g., 'latin-1')
-                chapter_content = chapter.get_content().decode('latin-1')
+        # Try decoding using utf-8
+        chapter_content = self.decode_content(chapter)
 
         # Use BeautifulSoup to parse HTML content
         soup = BeautifulSoup(chapter_content, 'html.parser')
 
         # Check if the chapter has the title "Information"
-        title_tag = soup.find('title')
-        if title_tag and title_tag.text.strip().lower() == 'information':
-            self.logger.print("Skipping chapter with title 'Information'")
-            return
+        # title_tag = soup.find('title')
+        # if title_tag and title_tag.text.strip().lower() == 'information':
+        #     self.logger.print("Skipping chapter with title 'Information'")
+        #     return
 
         # Get total paragraphs in the chapter
         paragraphs = soup.find_all(['p'])
-        total_paragraphs = len(paragraphs)
-
-        # Create a new list to store merged paragraphs
-        merged_paragraphs = []
-
-        i = 0
-        while i < total_paragraphs:
-            current_paragraph = paragraphs[i].get_text().strip()
-
-            # Merge adjacent paragraphs until each paragraph has more than min_paragraph_characters
-            while i < total_paragraphs - 1 and len(current_paragraph + " " + paragraphs[i + 1].get_text().strip()) <= self.config.min_paragraph_characters:
-                current_paragraph += " " + paragraphs[i + 1].get_text().strip()
-                i += 1
-
-            # Append the merged paragraph to the new list
-            merged_paragraphs.append(current_paragraph)
-
-            i += 1
-
-        # Clear the existing paragraphs in the soup
-        for paragraph in paragraphs:
-            paragraph.decompose()
-
-        # Add the merged paragraphs back to the soup
-        for merged_paragraph in merged_paragraphs:
-            new_paragraph_tag = soup.new_tag('p')
-            new_paragraph_tag.string = merged_paragraph
-            soup.append(new_paragraph_tag)
-
-        # After merging and removing, update the total_paragraphs
-        paragraphs = soup.find_all(['p'])
-        soup.clear()
         total_paragraphs = len(paragraphs)
 
         # Get the saved progress for the current chapter
@@ -154,7 +119,6 @@ class EpubProcessor:
         # Process each paragraph in the chapter sequentially
         for i, paragraph in enumerate(paragraphs[start_paragraph_index:], start=start_paragraph_index):
             # Process one paragraph at a time
-            # Print progress
             self.logger.print(
                 f"\nBook progress: {chap_num}/{total_chapters} chapters processed.")
             self.logger.print(
@@ -164,16 +128,13 @@ class EpubProcessor:
                 progress_bar_chapter.update(1)
 
             processed_paragraph = await self.process_individual_paragraph(paragraph, session, chap_num)
-            new_paragraph_tag = soup.new_tag('p')
-            new_paragraph_tag.string = processed_paragraph
-            soup.append(new_paragraph_tag)
+            chapter_content = chapter_content.replace(paragraph.get_text(), processed_paragraph)
             if self.config.use_cache:
                 save_cache_to_file(self.config.CACHE_FOLDER,
                                    book_title, chap_num, self.paragraph_cache)
 
         # Update the chapter content
-        chapter.set_content((u'<html><body><div>' + str(soup) +
-                            '</div></body></html>').encode('utf-8'))
+        chapter.set_content(chapter_content.encode('utf-8'))
 
     async def process_paragraph(self, paragraph, session, chap_num):
         # Filter and send the paragraph asynchronously
@@ -331,15 +292,6 @@ class EpubProcessor:
         for filename in os.listdir(input_folder):
             if filename.endswith(".epub"):
                 await self.process_epub_file(os.path.join(input_folder, filename), output_folder)
-
-    # async def process_all_txt(self, input_folder: str, output_folder: str):
-    #     # Ensure the output folder exists
-    #     os.makedirs(output_folder, exist_ok=True)
-
-    #     # Process all TXT files in the input folder sequentially
-    #     for filename in os.listdir(input_folder):
-    #         if filename.endswith(".txt"):
-    #             await self.process_epub_file(os.path.join(input_folder, filename), output_folder)
 
     def run(self):
         asyncio.run(self.process_all_epubs(
