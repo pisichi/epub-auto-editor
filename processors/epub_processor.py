@@ -80,19 +80,13 @@ class EpubProcessor:
         # Load the cache for the current chapter
         if self.config.use_cache:
             self.paragraph_cache = load_cache_from_file(
-                self.config.CACHE_FOLDER, book_title, chap_num)
+                self.config.cache_folder, book_title, chap_num)
 
         # Try decoding using utf-8
         chapter_content = self.decode_content(chapter)
 
         # Use BeautifulSoup to parse HTML content
         soup = BeautifulSoup(chapter_content, 'html.parser')
-
-        # Check if the chapter has the title "Information"
-        # title_tag = soup.find('title')
-        # if title_tag and title_tag.text.strip().lower() == 'information':
-        #     self.logger.print("Skipping chapter with title 'Information'")
-        #     return
 
         # Get total paragraphs in the chapter
         paragraphs = soup.find_all(['p'])
@@ -104,6 +98,11 @@ class EpubProcessor:
         if not self.config.verbose_logging:
             progress_bar_chapter = tqdm(
                 total=total_paragraphs, desc=f"{book_title}: {chap_num}/{total_chapters} chapters processed.", dynamic_ncols=True)
+
+        # Merge paragraphs if enabled
+        if self.config.merge_paragraphs:
+            # Code for merging paragraphs
+            paragraphs, soup = self.merge_paragraphs(paragraphs, soup)
 
         # Process each paragraph in the chapter sequentially
         for i, paragraph in enumerate(paragraphs[start_paragraph_index:], start=start_paragraph_index):
@@ -117,14 +116,50 @@ class EpubProcessor:
                 progress_bar_chapter.update(1)
 
             processed_paragraph = await self.process_individual_paragraph(paragraph, session, chap_num)
-            chapter_content = chapter_content.replace(
-                paragraph.get_text(), processed_paragraph)
+            if self.config.merge_paragraphs:
+                new_paragraph_tag = soup.new_tag('p')
+                new_paragraph_tag.string = processed_paragraph
+                soup.append(new_paragraph_tag)
+            else:
+                chapter_content = chapter_content.replace(
+                    paragraph.get_text(), processed_paragraph)
             if self.config.use_cache:
-                save_cache_to_file(self.config.CACHE_FOLDER,
+                save_cache_to_file(self.config.cache_folder,
                                    book_title, chap_num, self.paragraph_cache)
 
         # Update the chapter content
-        chapter.set_content(chapter_content.encode('utf-8'))
+        if self.config.merge_paragraphs:
+            chapter.set_content(
+                (u'<html><body><div>' + str(soup) + '</div></body></html>').encode('utf-8'))
+        else:
+            chapter.set_content(chapter_content.encode('utf-8'))
+
+    def merge_paragraphs(self, paragraphs, soup):
+        total_paragraphs = len(paragraphs)
+        merged_paragraphs = []
+
+        i = 0
+        while i < total_paragraphs:
+            current_paragraph = paragraphs[i].get_text().strip()
+
+            while i < total_paragraphs - 1 and len(current_paragraph + " " + paragraphs[i + 1].get_text().strip()) <= self.config.min_paragraph_characters:
+                current_paragraph += " " + paragraphs[i + 1].get_text().strip()
+                i += 1
+
+            merged_paragraphs.append(current_paragraph)
+            i += 1
+
+        for paragraph in paragraphs:
+            paragraph.decompose()
+
+        for merged_paragraph in merged_paragraphs:
+            new_paragraph_tag = soup.new_tag('p')
+            new_paragraph_tag.string = merged_paragraph
+            soup.append(new_paragraph_tag)
+
+        paragraphs = soup.find_all(['p'])
+        soup.clear()
+        return paragraphs, soup
 
     async def process_paragraph(self, paragraph, session, chap_num):
         # Filter and send the paragraph asynchronously
@@ -135,7 +170,7 @@ class EpubProcessor:
         if filtered_paragraph is None or not filtered_paragraph.strip():
             # Save the updated cache to file
             if self.config.use_cache:
-                save_cache_to_file(self.config.CACHE_FOLDER,
+                save_cache_to_file(self.config.cache_folder,
                                    book_title, chap_num, self.paragraph_cache)
 
             if self.config.verbose_logging:
@@ -164,7 +199,7 @@ class EpubProcessor:
 
         # Save the updated cache to file
         if self.config.use_cache:
-            save_cache_to_file(self.config.CACHE_FOLDER,
+            save_cache_to_file(self.config.cache_folder,
                                book_title, chap_num, self.paragraph_cache)
 
         if self.config.verbose_logging:
@@ -275,7 +310,7 @@ class EpubProcessor:
     async def process_all_epubs(self, input_folder: str, output_folder: str):
         # Ensure the output folder and cache folder exist
         os.makedirs(output_folder, exist_ok=True)
-        os.makedirs(self.config.CACHE_FOLDER, exist_ok=True)
+        os.makedirs(self.config.cache_folder, exist_ok=True)
 
         # Process all EPUB files in the input folder sequentially
         for filename in os.listdir(input_folder):
