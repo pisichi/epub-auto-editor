@@ -161,6 +161,27 @@ class EpubProcessor:
         soup.clear()
         return paragraphs, soup
 
+    def merge_sentences(self, sentences):
+        merged_paragraphs = []
+
+        i = 0
+        total_sentences = len(sentences)
+
+        while i < total_sentences:
+            current_sentence = sentences[i].strip()
+
+            # Merge adjacent sentences until each paragraph has more than min_paragraph_characters
+            while i < total_sentences - 1 and len(current_sentence + " " + sentences[i + 1].strip()) <= self.config.min_paragraph_characters:
+                current_sentence += " " + sentences[i + 1].strip()
+                i += 1
+
+            # Append the merged paragraph to the new list
+            merged_paragraphs.append(current_sentence)
+
+            i += 1
+
+        return merged_paragraphs
+
     async def process_paragraph(self, paragraph, session, chap_num):
         # Filter and send the paragraph asynchronously
         paragraph_text = paragraph.get_text() if isinstance(paragraph, dict) else paragraph
@@ -214,16 +235,29 @@ class EpubProcessor:
         else:
             return await self.process_paragraph(paragraph.get_text(), session, chap_num)
 
-    def split_paragraph_into_sentences(paragraph):
+    def split_paragraph_into_sentences(self, paragraph):
         sentences = []
         current_sentence = ""
+        in_dialogue = False
+        quote_char = None  # To keep track of the type of quotation marks
+
         for char in paragraph:
             current_sentence += char
+
             if char in ".!?":
-                sentences.append(current_sentence.strip())
-                current_sentence = ""
+                if not in_dialogue:
+                    sentences.append(current_sentence.strip())
+                    current_sentence = ""
+            elif char in ['"', '“', '”']:
+                if not in_dialogue:
+                    in_dialogue = True
+                    quote_char = char
+                elif in_dialogue and char == quote_char:
+                    in_dialogue = False
+
         if current_sentence:
             sentences.append(current_sentence.strip())
+
         return sentences
 
     async def send_to_llama_agent(self, session, input_text, max_tokens, retry_count=3, timeout=5000):
@@ -291,7 +325,7 @@ class EpubProcessor:
     async def process_large_paragraph(self, paragraph, session, chap_num):
         sentences = self.split_paragraph_into_sentences(paragraph.get_text())
 
-        sentences = self.merge_paragraphs(sentences)
+        sentences = self.merge_sentences(sentences)
 
         new_paragraphs = []
 
