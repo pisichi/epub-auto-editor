@@ -103,13 +103,13 @@ class EpubProcessor:
 
         if not self.config.verbose_logging:
             progress_bar_chapter = tqdm(
-                total=total_paragraphs, desc=f"Book progress: {chap_num + 1}/{total_chapters} chapters processed.", dynamic_ncols=True)
+                total=total_paragraphs, desc=f"{book_title}: {chap_num}/{total_chapters} chapters processed.", dynamic_ncols=True)
 
         # Process each paragraph in the chapter sequentially
         for i, paragraph in enumerate(paragraphs[start_paragraph_index:], start=start_paragraph_index):
             # Process one paragraph at a time
             self.logger.print(
-                f"\nBook progress: {chap_num}/{total_chapters} chapters processed.")
+                f"\n{book_title}: {chap_num}/{total_chapters} chapters processed.")
             self.logger.print(
                 f"Chapter progress: {i + 1}/{total_paragraphs} paragraphs processed.\n")
 
@@ -220,7 +220,6 @@ class EpubProcessor:
 
                 # Check if the token difference is too much
                 if abs(added_tokens - removed_tokens) > 30:
-                    modified_input_text = input_text + "."
                     if self.verbose_logging:
                         visualize_differences(
                             input_text, llama_response_output)
