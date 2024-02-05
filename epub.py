@@ -22,15 +22,16 @@ def parse_arguments() -> Config:
     parser.add_argument("--verbose", action="store_true",
                         help="Enable verbose logging")
     parser.add_argument("--model-path", type=str, help="Path to the model")
+    parser.add_argument("--merge-paragraphs", action="store_true",
+                        help="Merge paragraphs")
+    parser.add_argument("--min-char", type=int,
+                        help="Minimum number of characters in a paragraph")
+    parser.add_argument("--max-char", type=int,
+                        help="Maximum number of characters in a paragraph")
     args = parser.parse_args()
 
     config = Config()
-    config.input_folder = args.input or config.input_folder
-    config.output_folder = args.output or config.output_folder
-    config.llama_url = args.url or config.llama_url
-    config.use_cache = not args.no_cache if args.no_cache is not None else config.use_cache
-    config.verbose_logging = args.verbose or config.verbose_logging
-    config.model_path = args.model_path or config.model_path
+    config.update_from_args(args)
 
     return config
 
