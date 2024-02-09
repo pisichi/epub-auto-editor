@@ -37,4 +37,8 @@ test.py
 # Local env
 .env
 
+# model file
+*.gguf
+*.ggml
+*.safetensors
 
