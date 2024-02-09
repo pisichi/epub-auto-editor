@@ -42,6 +42,8 @@ For a detailed installation guide of Llama-Cpp-Python with Nvidia gpu accelerati
    N_GPU_LAYERS = -1
    N_CTX = 2048
    N_BATCH = 32
+   TEMPERATURE=0.4
+   REPEAT_PENALTY=1.0
    # Editor's prompt and message formatting
    AGENT_PROMPT = "You are a professional editor. Your job is to fix grammar in the given paragraph to enhance its quality."
    PREDEFINED_MESSAGES_FORMATTER_TYPE = "CHATML"
