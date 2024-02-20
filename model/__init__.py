@@ -22,7 +22,7 @@ repeat_penalty = float(os.getenv("REPEAT_PENALTY")) if os.getenv(
 
 class Model:
     def __init__(self, model_path):
-        print('Initializing modeling...this may take a while.')
+        print('Initializing model...this may take a while.')
         current_working_directory = os.getcwd()
         relative_path = os.path.relpath(model_path, current_working_directory)
 
